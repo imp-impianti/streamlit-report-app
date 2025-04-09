@@ -1,46 +1,44 @@
 
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-import os
 from datetime import datetime
 from io import BytesIO
 
-# --- Configurazione Streamlit ---
 st.set_page_config(layout="wide", page_title="Metrica Interattiva")
 st.title("📏 Metrica Interattiva da 0 a 3000 m")
 
-# --- Caricamento dati ---
-uploaded_file = st.file_uploader("Carica il file Excel con i dati", type=["xlsx"])
+# Upload Excel
+uploaded_file = st.file_uploader("Carica file Excel con colonna 'imbocco' e 'descrizione'", type=["xlsx"])
 
 if uploaded_file:
-    df = pd.read_excel(uploaded_file)
+    if "df" not in st.session_state:
+        st.session_state.df = pd.read_excel(uploaded_file)
+    
+    df = st.session_state.df
 
     if 'imbocco' in df.columns and df['imbocco'].dtype in ['int64', 'float64']:
+        st.subheader("📊 Dati caricati")
+        st.dataframe(df)
 
-        with st.expander("📄 Visualizza dati caricati"):
-            st.dataframe(df)
-
+        # Grafico
         fig = go.Figure()
-        colors = px.colors.qualitative.Plotly
-        legenda_color = {}
+        colors = st.session_state.get("colors", {})
+        color_palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
 
         for i, row in df.iterrows():
-            x = row['imbocco']
-            label = row.get('descrizione', f"Punto {i}")
-            tipo = row.get('tipo', 'Generico')
-            colore = colors[hash(tipo) % len(colors)]
-            legenda_color[tipo] = colore
+            tipo = row.get("tipo", "Generico")
+            if tipo not in colors:
+                colors[tipo] = color_palette[len(colors) % len(color_palette)]
+            color = colors[tipo]
 
             fig.add_trace(go.Scatter(
-                x=[x], y=[0],
-                mode='markers',
-                marker=dict(size=12, color=colore),
-                name=label,
-                hovertemplate=f"<b>{label}</b><br>Metrica: {x} m",
-                customdata=[[i]],
-                hoverinfo='text'
+                x=[row["imbocco"]], y=[0],
+                mode="markers",
+                marker=dict(size=12, color=color),
+                name=row["descrizione"],
+                hovertemplate=f"{row['descrizione']}<br>{row['imbocco']} m<br>{tipo}",
+                customdata=[i],
             ))
 
         fig.update_layout(
@@ -50,36 +48,29 @@ if uploaded_file:
             height=300,
             showlegend=False
         )
-
         st.plotly_chart(fig, use_container_width=True)
 
-        with st.expander("🎨 Legenda colori per tipo oggetto"):
-            for tipo, color in legenda_color.items():
-                st.markdown(f"<div style='display:flex;align-items:center;'><div style='width:20px;height:20px;background:{color};margin-right:10px;border-radius:3px;'></div> {tipo}</div>", unsafe_allow_html=True)
+        # Modifica punto
+        st.subheader("🛠️ Modifica punto")
+        index = st.selectbox("Seleziona un punto", options=df.index, format_func=lambda i: f"{df.loc[i, 'descrizione']} ({df.loc[i, 'imbocco']} m)")
 
-        selected_index = st.selectbox("Seleziona un punto per modificarlo:", options=range(len(df)), format_func=lambda i: f"{df.iloc[i]['descrizione']} - {df.iloc[i]['imbocco']} m")
+        with st.form("modifica_form"):
+            descrizione = st.text_input("Descrizione", df.loc[index, "descrizione"])
+            tipo = st.text_input("Tipo", df.loc[index].get("tipo", ""))
+            note = st.text_area("Note", df.loc[index].get("note", ""))
 
-        if selected_index is not None:
-            punto = df.iloc[selected_index]
-            st.subheader("🔧 Modifica punto")
+            submitted = st.form_submit_button("Salva modifiche")
+            if submitted:
+                df.at[index, "descrizione"] = descrizione
+                df.at[index, "tipo"] = tipo
+                df.at[index, "note"] = note
+                st.session_state.df = df
+                st.success("✅ Modifiche salvate!")
 
-            new_descrizione = st.text_input("Descrizione", punto['descrizione'])
-            new_note = st.text_area("Note", punto.get('note', ''))
-            new_tipo = st.text_input("Tipo", punto.get('tipo', ''))
-
-            if st.button("Salva modifiche"):
-                df.at[selected_index, 'descrizione'] = new_descrizione
-                df.at[selected_index, 'note'] = new_note
-                df.at[selected_index, 'tipo'] = new_tipo
-
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                save_path = f"modifiche_dati_{timestamp}.xlsx"
-                df.to_excel(save_path, index=False)
-                st.success(f"Modifiche salvate in '{save_path}'")
-
+        # Download Excel aggiornato
         buffer = BytesIO()
         df.to_excel(buffer, index=False)
-        st.download_button("📥 Scarica Excel aggiornato", buffer.getvalue(), file_name="dati_aggiornati.xlsx")
+        st.download_button("📥 Scarica Excel aggiornato", data=buffer.getvalue(), file_name="dati_modificati.xlsx")
 
     else:
         st.error("Il file deve contenere una colonna 'imbocco' con valori numerici.")

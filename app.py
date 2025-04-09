@@ -6,3 +6,5 @@ st.title("📊 Streamlit Report App")
 st.write("Benvenuto nell'applicazione per la generazione dei report da file Excel.")
 
 # Placeholder per caricamento, visualizzazione, ed esportazione
+
+import plotly.graph_objects as go
